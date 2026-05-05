@@ -913,6 +913,7 @@
   MsvmPkg/EfiHvDxe/EfiHvDxe.inf
   MsvmPkg/EmclDxe/EmclDxe.inf
   MsvmPkg/EventLogDxe/EventLogDxe.inf
+  MsvmPkg/CcBlobDxe/CcBlobDxe.inf
   MsvmPkg/AziHsmDxe/AziHsmDxe.inf
   MsvmPkg/MsvmPcAtRealTimeClockRuntimeDxe/PcatRealTimeClockRuntimeDxe.inf
   MsvmPkg/NetvscDxe/NetvscDxe.inf

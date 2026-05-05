@@ -210,6 +210,7 @@ APRIORI DXE {
   INF MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
   INF MdeModulePkg/Universal/ReportStatusCodeRouter/RuntimeDxe/ReportStatusCodeRouterRuntimeDxe.inf
   INF MsvmPkg/EventLogDxe/EventLogDxe.inf
+  INF MsvmPkg/CcBlobDxe/CcBlobDxe.inf
   INF MsvmPkg/SynicTimerDxe/SynicTimerDxe.inf
   INF MsvmPkg/VariableDxe/VariableDxe.inf
   INF MsvmPkg/EfiDiagnosticsDxe/EfiDiagnosticsDxe.inf
@@ -264,6 +265,7 @@ INF MsvmPkg/CpuDxe/CpuDxe.inf
 INF MsvmPkg/EfiHvDxe/EfiHvDxe.inf
 INF MsvmPkg/EmclDxe/EmclDxe.inf
 INF MsvmPkg/EventLogDxe/EventLogDxe.inf
+INF MsvmPkg/CcBlobDxe/CcBlobDxe.inf
 INF MsvmPkg/MsvmPcAtRealTimeClockRuntimeDxe/PcatRealTimeClockRuntimeDxe.inf
 INF MsvmPkg/NetvscDxe/NetvscDxe.inf
 INF MsvmPkg/NvmExpressDxe/NvmExpressDxe.inf

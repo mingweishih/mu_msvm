@@ -1,0 +1,43 @@
+## @file
+#  CC Blob DXE driver: surfaces the OpenHCL paravisor's SEV-SNP secrets
+#  and CPUID pages to an upstream sev-guest-aware Linux kernel via
+#  LINUX_EFI_CC_BLOB_GUID.
+#
+#  POC contract - replace with proper BiosConfig handoff before
+#  upstreaming. See OpenhclSnpCcBlobHandoff.h.
+#
+#  Copyright (c) Microsoft Corporation.
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010016
+  BASE_NAME                      = CcBlobDxe
+  FILE_GUID                      = 5C7B3A1F-7C12-4D6A-8E54-7D1F5A2C9E03
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = CcBlobDxeEntry
+
+#
+#  VALID_ARCHITECTURES           = X64
+#
+
+[Sources]
+  CcBlobDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MsvmPkg/MsvmPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  IsolationLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Depex]
+  TRUE
