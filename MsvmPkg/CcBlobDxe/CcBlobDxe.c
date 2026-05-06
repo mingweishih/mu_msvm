@@ -92,21 +92,38 @@ CcBlobDxeEntry (
   }
 
   //
-  // Read the OpenHCL handoff page from its well-known fixed GPA. The
-  // paravisor pre-validates this page; the contents may still be all
-  // zero if the paravisor was built without expose_snp_to_vtl0 support
-  // or the partition mode was not enabled.
+  // Locate the OpenHCL handoff page by scanning low VTL0 memory for the
+  // OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC value at every 4 KiB boundary.
   //
-  CopyMem (
-    &Handoff,
-    (VOID *)(UINTN)OPENHCL_SNP_CC_BLOB_HANDOFF_GPA,
-    sizeof (Handoff)
-    );
+  // Earlier revisions used a hardcoded GPA inside the UEFI configuration
+  // window (0x709000-0x800000), but that collided with PEI's own runtime
+  // config layout and caused PEI fail-fasts. Scanning is robust to any
+  // future changes in the OpenHCL loader's page allocation order.
+  //
+  // We scan the range [0x1000 .. 0x100000) (above the measured config
+  // page, below the UEFI image) for the magic. The OpenHCL loader places
+  // the handoff in one of the lowest free pages, well below 0x100000.
+  //
+  OPENHCL_SNP_CC_BLOB_HANDOFF *FoundHandoff = NULL;
+  UINTN  ScanGpa;
+  for (ScanGpa = 0x1000; ScanGpa < 0x100000; ScanGpa += 0x1000) {
+    OPENHCL_SNP_CC_BLOB_HANDOFF *Candidate =
+      (OPENHCL_SNP_CC_BLOB_HANDOFF *)(UINTN)ScanGpa;
+    if (Candidate->Magic == OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC) {
+      FoundHandoff = Candidate;
+      break;
+    }
+  }
 
-  if (Handoff.Magic != OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC) {
-    DEBUG ((DEBUG_INFO, "CcBlobDxe: no handoff present (magic mismatch)\n"));
+  if (FoundHandoff == NULL) {
+    DEBUG ((
+      DEBUG_INFO,
+      "CcBlobDxe: no SnpCcBlobHandoff magic found in low memory; skipping\n"
+      ));
     return EFI_SUCCESS;
   }
+
+  CopyMem (&Handoff, FoundHandoff, sizeof (Handoff));
 
   if (Handoff.Version != OPENHCL_SNP_CC_BLOB_HANDOFF_VERSION) {
     DEBUG ((
