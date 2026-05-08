@@ -176,27 +176,17 @@ Return Value:
     //
 
 #if defined(MDE_CPU_X64)
-    if (IsHardwareIsolated())
+    if (IsHardwareIsolated() && !exposeSnpToVtl0)
     {
-        EFI_STATUS PvStatus;
-        DEBUG((DEBUG_ERROR,
-            "OPENHCL_SNP_VTL0: pvalidate base=0x%lx pages=0x%lx (iso=%u)\n",
-            (UINT64)GpaPageBase, (UINT64)PageCount, (UINT32)GetIsolationType()));
-        PvStatus = EfiUpdatePageRangeAcceptance(
+        // Hardware-isolated-no-paravisor path: PVALIDATE pages here.
+        // (When expose_snp_to_vtl0 is set, we skip - PVALIDATE from VMPL2
+        // raises #GP in the OpenHCL paravisor model, see CcBlobDxe.)
+        PEI_FAIL_FAST_IF_FAILED(EfiUpdatePageRangeAcceptance(
             GetIsolationType(),
             (VOID*)PcdGet64(PcdSvsmCallingArea),
             GpaPageBase,
             PageCount,
-            TRUE);
-        DEBUG((DEBUG_ERROR,
-            "OPENHCL_SNP_VTL0: pvalidate status=0x%lx base=0x%lx pages=0x%lx\n",
-            (UINT64)PvStatus, (UINT64)GpaPageBase, (UINT64)PageCount));
-        if (!exposeSnpToVtl0) {
-            // Original behavior: fail-fast on error in the hardware-isolated-no-paravisor path.
-            PEI_FAIL_FAST_IF_FAILED(PvStatus);
-        }
-        // expose_snp_to_vtl0 mode: log but don't fail-fast, so we can see all
-        // problematic ranges in one boot rather than dying on the first one.
+            TRUE));
     }
 #endif
 }
