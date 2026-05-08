@@ -16,6 +16,46 @@
 #include <Library/HostVisibilityLib.h>
 #include <IsolationTypes.h>
 #include <Library/CrashDumpAgentLib.h>
+#include <OpenhclSnpCcBlobHandoff.h>
+
+
+//
+// SEV-SNP "expose to VTL0" experimental probe.
+//
+// Returns TRUE if the OpenHCL paravisor planted an
+// OPENHCL_SNP_CC_BLOB_HANDOFF in low VTL0 memory with the PRESENT
+// flag set.  This signals that we are in the experimental
+// expose_snp_to_vtl0 mode and the firmware is expected to PVALIDATE
+// guest RAM at the running VMPL (=VMPL2) so that an SNP-aware kernel
+// can execute.  Without this, the kernel UKI's first instruction
+// triple-faults on a page that is RMP-marked private but not
+// VMPL2-validated.
+//
+// Today the handoff page is discovered the same way `CcBlobDxe` does
+// it: scan low memory for the OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC value
+// at every 4 KiB boundary.  This is a POC; before upstreaming it
+// should be replaced with a proper BiosConfig selector.
+//
+STATIC
+BOOLEAN
+HobpExposeSnpToVtl0(
+    VOID
+    )
+{
+    UINTN ScanGpa;
+    for (ScanGpa = 0x1000; ScanGpa < 0x100000; ScanGpa += 0x1000)
+    {
+        OPENHCL_SNP_CC_BLOB_HANDOFF *Candidate =
+            (OPENHCL_SNP_CC_BLOB_HANDOFF *)(UINTN)ScanGpa;
+        if (Candidate->Magic == OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC &&
+            Candidate->Version == OPENHCL_SNP_CC_BLOB_HANDOFF_VERSION &&
+            (Candidate->Flags & OPENHCL_SNP_CC_BLOB_HANDOFF_FLAG_PRESENT) != 0)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
 
 
 #define BASIC_FLAGS                                     \
@@ -76,11 +116,24 @@ Return Value:
         ((configBlobBase + configBlobSize - 1) / EFI_PAGE_SIZE) + 1;
 
     //
-    // No acceptance is required unless this is a hardware isolated platform
-    // with no paravisor.
+    // Acceptance is required when:
+    //   * this is a hardware-isolated platform with no paravisor
+    //     (the existing case), OR
+    //   * the OpenHCL paravisor has set the SEV-SNP "expose to VTL0"
+    //     handoff page (POC).  In that case the paravisor pre-validated
+    //     the pages at VMPL0, but Linux's SNP-aware kernel will need
+    //     them validated at the firmware's VMPL (=VMPL2) before it can
+    //     execute.  PVALIDATE is per-VMPL: only an entity at VMPL2 can
+    //     set the VMPL2-validated bit, so the firmware (running at
+    //     VMPL2 in paravisor mode) must do it here.
     //
+    BOOLEAN exposeSnpToVtl0 = FALSE;
+    if (IsParavisorPresent() && GetIsolationType() == UefiIsolationTypeSnp)
+    {
+        exposeSnpToVtl0 = HobpExposeSnpToVtl0();
+    }
 
-    if (!IsHardwareIsolatedNoParavisor())
+    if (!IsHardwareIsolatedNoParavisor() && !exposeSnpToVtl0)
     {
         return;
     }
