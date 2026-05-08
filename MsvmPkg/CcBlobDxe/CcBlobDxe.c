@@ -364,10 +364,15 @@ CcBlobDxeEntry (
     ));
 
   //
-  // Now PVALIDATE all conventional memory at our current VMPL so an
-  // SNP-aware kernel can execute from any page BDS hands it.
+  // PVALIDATE-at-VMPL2 from inside DXE was tried and triple-faults
+  // (#GP from pvalidate). Per AMD APM 15.36.10 PVALIDATE requires
+  // SEV_FEATURES.SNPActive set in the executing VMSA, but in the
+  // OpenHCL paravisor model the VTL0/VMPL2 VMSA's SEV_FEATURES
+  // appear not to satisfy that at runtime. Disabled until we know how
+  // to enable it (e.g. an MSHV ioctl or RMPADJUST/SVSM-style bring-up).
   //
-  PvalidateConventionalMemoryAtCurrentVmpl ();
+  // PvalidateConventionalMemoryAtCurrentVmpl ();
+  DEBUG ((DEBUG_ERROR, "OPENHCL_SNP_VTL0: PVALIDATE-at-VMPL2 disabled (was #GP)\n"));
 
   return EFI_SUCCESS;
 }
