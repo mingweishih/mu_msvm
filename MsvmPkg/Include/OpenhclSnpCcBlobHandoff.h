@@ -18,7 +18,7 @@
 //
 // Magic value identifying a SnpCcBlobHandoff. ASCII "OHSNPCCB" little-endian.
 //
-#define OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC   0x4243434E5350484FULL // 'OHSNPCCB'
+#define OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC   0x424343504E53484FULL // 'OHSNPCCB'
 
 //
 // Schema version. Must match SNP_CC_BLOB_HANDOFF_VERSION on the host side.
