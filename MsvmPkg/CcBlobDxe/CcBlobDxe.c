@@ -240,18 +240,30 @@ CcBlobDxeEntry (
   // Locate the OpenHCL handoff page by scanning low VTL0 memory for the
   // OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC value at every 4 KiB boundary.
   //
-  // Earlier revisions used a hardcoded GPA inside the UEFI configuration
-  // window (0x709000-0x800000), but that collided with PEI's own runtime
-  // config layout and caused PEI fail-fasts. Scanning is robust to any
-  // future changes in the OpenHCL loader's page allocation order.
+  // Probe the GPA the loader currently uses (0x4000) and the next several
+  // candidates so we can see in the diagnostic log whether the bytes are
+  // there but mis-located vs. completely overwritten.
   //
-  // We scan the range [0x1000 .. 0x100000) (above the measured config
-  // page, below the UEFI image) for the magic. The OpenHCL loader places
-  // the handoff in one of the lowest free pages, well below 0x100000.
+  for (UINTN p = 0x1000; p <= 0x10000; p += 0x1000) {
+    UINT64 *q = (UINT64 *)(UINTN)p;
+    DEBUG ((
+      DEBUG_ERROR,
+      "OPENHCL_SNP_VTL0: probe gpa=0x%lx [0]=0x%lx [1]=0x%lx\n",
+      (UINT64)p, q[0], q[1]
+      ));
+  }
+  DEBUG ((
+    DEBUG_ERROR,
+    "OPENHCL_SNP_VTL0: magic_expected=0x%lx\n",
+    (UINT64)OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC
+    ));
+
+  //
+  // Now scan a wide range so we can find the magic if it has moved.
   //
   OPENHCL_SNP_CC_BLOB_HANDOFF *FoundHandoff = NULL;
   UINTN  ScanGpa;
-  for (ScanGpa = 0x1000; ScanGpa < 0x100000; ScanGpa += 0x1000) {
+  for (ScanGpa = 0x1000; ScanGpa < 0x1000000; ScanGpa += 0x1000) {
     OPENHCL_SNP_CC_BLOB_HANDOFF *Candidate =
       (OPENHCL_SNP_CC_BLOB_HANDOFF *)(UINTN)ScanGpa;
     if (Candidate->Magic == OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC) {
