@@ -43,17 +43,25 @@ HobpExposeSnpToVtl0(
     )
 {
     UINTN ScanGpa;
+    UINT64 *Probe = (UINT64*)(UINTN)0x4000;
+    DEBUG((DEBUG_ERROR, "OPENHCL_SNP_VTL0: probe gpa=0x4000 magic_expected=0x%lx got=0x%lx ver+flags=0x%lx\n",
+           (UINT64)OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC, Probe[0], Probe[1]));
     for (ScanGpa = 0x1000; ScanGpa < 0x100000; ScanGpa += 0x1000)
     {
         OPENHCL_SNP_CC_BLOB_HANDOFF *Candidate =
             (OPENHCL_SNP_CC_BLOB_HANDOFF *)(UINTN)ScanGpa;
-        if (Candidate->Magic == OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC &&
-            Candidate->Version == OPENHCL_SNP_CC_BLOB_HANDOFF_VERSION &&
-            (Candidate->Flags & OPENHCL_SNP_CC_BLOB_HANDOFF_FLAG_PRESENT) != 0)
+        if (Candidate->Magic == OPENHCL_SNP_CC_BLOB_HANDOFF_MAGIC)
         {
-            return TRUE;
+            DEBUG((DEBUG_ERROR, "OPENHCL_SNP_VTL0: found magic at 0x%lx ver=%u flags=0x%x\n",
+                   (UINT64)ScanGpa, Candidate->Version, Candidate->Flags));
+            if (Candidate->Version == OPENHCL_SNP_CC_BLOB_HANDOFF_VERSION &&
+                (Candidate->Flags & OPENHCL_SNP_CC_BLOB_HANDOFF_FLAG_PRESENT) != 0)
+            {
+                return TRUE;
+            }
         }
     }
+    DEBUG((DEBUG_ERROR, "OPENHCL_SNP_VTL0: handoff magic NOT FOUND in [0x1000..0x100000)\n"));
     return FALSE;
 }
 
@@ -132,6 +140,11 @@ Return Value:
     {
         exposeSnpToVtl0 = HobpExposeSnpToVtl0();
     }
+    DEBUG((DEBUG_ERROR,
+        "OPENHCL_SNP_VTL0: HobpAcceptRamPages base=0x%lx pages=0x%lx pv=%u iso=%u expose=%u hwNoPv=%u\n",
+        (UINT64)GpaPageBase, (UINT64)PageCount,
+        (UINT32)IsParavisorPresent(), (UINT32)GetIsolationType(),
+        (UINT32)exposeSnpToVtl0, (UINT32)IsHardwareIsolatedNoParavisor()));
 
     if (!IsHardwareIsolatedNoParavisor() && !exposeSnpToVtl0)
     {
@@ -165,12 +178,25 @@ Return Value:
 #if defined(MDE_CPU_X64)
     if (IsHardwareIsolated())
     {
-        PEI_FAIL_FAST_IF_FAILED(EfiUpdatePageRangeAcceptance(
+        EFI_STATUS PvStatus;
+        DEBUG((DEBUG_ERROR,
+            "OPENHCL_SNP_VTL0: pvalidate base=0x%lx pages=0x%lx (iso=%u)\n",
+            (UINT64)GpaPageBase, (UINT64)PageCount, (UINT32)GetIsolationType()));
+        PvStatus = EfiUpdatePageRangeAcceptance(
             GetIsolationType(),
             (VOID*)PcdGet64(PcdSvsmCallingArea),
             GpaPageBase,
             PageCount,
-            TRUE));
+            TRUE);
+        DEBUG((DEBUG_ERROR,
+            "OPENHCL_SNP_VTL0: pvalidate status=0x%lx base=0x%lx pages=0x%lx\n",
+            (UINT64)PvStatus, (UINT64)GpaPageBase, (UINT64)PageCount));
+        if (!exposeSnpToVtl0) {
+            // Original behavior: fail-fast on error in the hardware-isolated-no-paravisor path.
+            PEI_FAIL_FAST_IF_FAILED(PvStatus);
+        }
+        // expose_snp_to_vtl0 mode: log but don't fail-fast, so we can see all
+        // problematic ranges in one boot rather than dying on the first one.
     }
 #endif
 }
