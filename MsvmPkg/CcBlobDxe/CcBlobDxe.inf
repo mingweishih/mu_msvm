@@ -33,11 +33,16 @@
   BaseLib
   BaseMemoryLib
   DebugLib
+  HostVisibilityLib
   IsolationLib
   MemoryAllocationLib
+  PcdLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
   UefiLib
+
+[Pcd]
+  gMsvmPkgTokenSpaceGuid.PcdSvsmCallingArea            ## SOMETIMES_CONSUMES
 
 [Depex]
   TRUE

@@ -30,7 +30,10 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiDriverEntryPoint.h>
 #include <Library/UefiLib.h>
+#include <Library/HostVisibilityLib.h>
+#include <Library/PcdLib.h>
 
+#include <Hv/HvGuestCpuid.h>
 #include <IsolationTypes.h>
 #include <OpenhclSnpCcBlobHandoff.h>
 
@@ -64,6 +67,141 @@ typedef struct {
 #define CC_BLOB_SEV_INFO_VERSION  1U
 
 /**
+  Walk the EFI memory map and PVALIDATE every EfiConventionalMemory range
+  at the firmware's running VMPL (=VMPL2 in the OpenHCL paravisor model).
+
+  Background: when the OpenHCL paravisor exposes SEV-SNP CPUID to VTL0,
+  Linux's SNP-aware kernel needs every page it executes from to be
+  validated at its current VMPL. The paravisor at VMPL0 cannot do this
+  on the firmware/guest behalf because PVALIDATE is per-VMPL. So mu_msvm
+  (running at VMPL2) must do it before BDS hands off to the OS image.
+
+  Returns the number of distinct ranges processed and writes diagnostic
+  output via DEBUG.
+**/
+STATIC
+VOID
+PvalidateConventionalMemoryAtCurrentVmpl (
+  VOID
+  )
+{
+  EFI_STATUS                Status;
+  UINTN                     MemoryMapSize;
+  UINTN                     MapKey;
+  UINTN                     DescriptorSize;
+  UINT32                    DescriptorVersion;
+  EFI_MEMORY_DESCRIPTOR     *MemoryMap;
+  EFI_MEMORY_DESCRIPTOR     *Desc;
+  UINTN                     RangeCount;
+  UINTN                     OkCount;
+  UINTN                     FailCount;
+  UINT64                    TotalPages;
+
+  //
+  // First call to learn required size; bump to leave room for changes.
+  //
+  MemoryMap     = NULL;
+  MemoryMapSize = 0;
+  Status = gBS->GetMemoryMap (
+                  &MemoryMapSize,
+                  MemoryMap,
+                  &MapKey,
+                  &DescriptorSize,
+                  &DescriptorVersion
+                  );
+  if (Status != EFI_BUFFER_TOO_SMALL) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "OPENHCL_SNP_VTL0: GetMemoryMap (size probe) status=%r\n",
+      Status
+      ));
+    return;
+  }
+
+  MemoryMapSize += 8 * DescriptorSize;
+  MemoryMap     = AllocatePool (MemoryMapSize);
+  if (MemoryMap == NULL) {
+    DEBUG ((DEBUG_ERROR, "OPENHCL_SNP_VTL0: GetMemoryMap AllocatePool failed\n"));
+    return;
+  }
+
+  Status = gBS->GetMemoryMap (
+                  &MemoryMapSize,
+                  MemoryMap,
+                  &MapKey,
+                  &DescriptorSize,
+                  &DescriptorVersion
+                  );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "OPENHCL_SNP_VTL0: GetMemoryMap status=%r\n",
+      Status
+      ));
+    FreePool (MemoryMap);
+    return;
+  }
+
+  RangeCount = 0;
+  OkCount    = 0;
+  FailCount  = 0;
+  TotalPages = 0;
+
+  for (Desc = MemoryMap;
+       (UINT8 *)Desc < (UINT8 *)MemoryMap + MemoryMapSize;
+       Desc = (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)Desc + DescriptorSize))
+  {
+    if (Desc->Type != EfiConventionalMemory) {
+      continue;
+    }
+    if (Desc->NumberOfPages == 0) {
+      continue;
+    }
+    RangeCount++;
+    TotalPages += Desc->NumberOfPages;
+
+    DEBUG ((
+      DEBUG_ERROR,
+      "OPENHCL_SNP_VTL0: pvalidate range %u: gpa=0x%lx pages=0x%lx\n",
+      (UINT32)RangeCount,
+      Desc->PhysicalStart,
+      Desc->NumberOfPages
+      ));
+
+    Status = EfiUpdatePageRangeAcceptance (
+               GetIsolationType (),
+               (VOID *)PcdGet64 (PcdSvsmCallingArea),
+               Desc->PhysicalStart / EFI_PAGE_SIZE,
+               Desc->NumberOfPages,
+               TRUE
+               );
+    if (EFI_ERROR (Status)) {
+      FailCount++;
+      DEBUG ((
+        DEBUG_ERROR,
+        "OPENHCL_SNP_VTL0:   pvalidate FAILED status=%r gpa=0x%lx pages=0x%lx\n",
+        Status,
+        Desc->PhysicalStart,
+        Desc->NumberOfPages
+        ));
+    } else {
+      OkCount++;
+    }
+  }
+
+  DEBUG ((
+    DEBUG_ERROR,
+    "OPENHCL_SNP_VTL0: pvalidate summary ranges=%u ok=%u fail=%u total_pages=0x%lx\n",
+    (UINT32)RangeCount,
+    (UINT32)OkCount,
+    (UINT32)FailCount,
+    TotalPages
+    ));
+
+  FreePool (MemoryMap);
+}
+
+/**
   Entry point for the CC Blob DXE driver.
 **/
 EFI_STATUS
@@ -76,6 +214,13 @@ CcBlobDxeEntry (
   EFI_STATUS                         Status;
   OPENHCL_SNP_CC_BLOB_HANDOFF        Handoff;
   CC_BLOB_SEV_INFO                   *Blob;
+
+  DEBUG ((
+    DEBUG_ERROR,
+    "OPENHCL_SNP_VTL0: CcBlobDxe entry iso=%u paravisor=%u\n",
+    (UINT32)GetIsolationType (),
+    (UINT32)IsParavisorPresent ()
+    ));
 
   //
   // Only meaningful when the firmware is running in an SNP guest with a
@@ -115,10 +260,18 @@ CcBlobDxeEntry (
     }
   }
 
+  if (FoundHandoff != NULL) {
+    DEBUG ((
+      DEBUG_ERROR,
+      "OPENHCL_SNP_VTL0: CcBlobDxe found handoff at 0x%lx\n",
+      (UINT64)(UINTN)FoundHandoff
+      ));
+  }
+
   if (FoundHandoff == NULL) {
     DEBUG ((
-      DEBUG_INFO,
-      "CcBlobDxe: no SnpCcBlobHandoff magic found in low memory; skipping\n"
+      DEBUG_ERROR,
+      "OPENHCL_SNP_VTL0: CcBlobDxe no SnpCcBlobHandoff magic found in low memory; skipping\n"
       ));
     return EFI_SUCCESS;
   }
@@ -192,11 +345,17 @@ CcBlobDxeEntry (
   }
 
   DEBUG ((
-    DEBUG_INFO,
-    "CcBlobDxe: installed LINUX_EFI_CC_BLOB secrets=%lx cpuid=%lx\n",
+    DEBUG_ERROR,
+    "OPENHCL_SNP_VTL0: CcBlobDxe installed LINUX_EFI_CC_BLOB secrets=%lx cpuid=%lx\n",
     Handoff.SecretsGpa,
     Handoff.CpuidGpa
     ));
+
+  //
+  // Now PVALIDATE all conventional memory at our current VMPL so an
+  // SNP-aware kernel can execute from any page BDS hands it.
+  //
+  PvalidateConventionalMemoryAtCurrentVmpl ();
 
   return EFI_SUCCESS;
 }
