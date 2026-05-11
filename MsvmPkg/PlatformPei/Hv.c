@@ -70,6 +70,13 @@ Return Value:
     }
 
     MsCpuid(cpuidResult.AsUINT32, HvCpuidFunctionMsHvIsolationConfiguration);
+    DEBUG((DEBUG_INFO,
+        "%a: MsHvIsolationConfiguration: type=%u paravisor=%u sharedGpaActive=%u sharedGpaBits=%u\n",
+        __func__,
+        (UINT32)cpuidResult.MsHvIsolationConfiguration.IsolationType,
+        (UINT32)cpuidResult.MsHvIsolationConfiguration.ParavisorPresent,
+        (UINT32)cpuidResult.MsHvIsolationConfiguration.SharedGpaBoundaryActive,
+        (UINT32)cpuidResult.MsHvIsolationConfiguration.SharedGpaBoundaryBits));
     switch (cpuidResult.MsHvIsolationConfiguration.IsolationType)
     {
     case HV_PARTITION_ISOLATION_TYPE_VBS:

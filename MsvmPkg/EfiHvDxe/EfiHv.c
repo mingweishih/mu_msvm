@@ -963,11 +963,15 @@ EfiHvPostMessage (
         __func__, ConnectionId, MessageType, Payload, PayloadSize));
 
     //
-    // A direct hypercall is only valid if we are hardware isolated with a
-    // paravisor.
+    // A direct hypercall (one that is explicitly routed through the
+    // paravisor instead of bypassing it) is only valid when a paravisor is
+    // present.  Originally this was approximated by requiring a bypass
+    // context to exist, but the SNP+paravisor configuration has no bypass
+    // context (the paravisor mediates all SNP operations), so use the
+    // paravisor-presence flag directly.
     //
 
-    if (DirectHypercall && (!mUseBypassContext || mBypassOnly))
+    if (DirectHypercall && !IsParavisorPresent())
     {
         return EFI_INVALID_PARAMETER;
     }
@@ -1748,7 +1752,17 @@ EfiHvConnectToHypervisor (
     // that will require a direct connection to the hypervisor that bypasses
     // the paravisor.
     //
-    if (IsHardwareIsolatedEx(mIsolationType))
+    // SNP-with-paravisor (e.g. OpenHCL) is excluded here: SEC deliberately
+    // skips its SNP/GHCB initialization when ParavisorPresent==1
+    // (see SecMain.c), so MSR_GHCB is unset and GhcbInitializeGhcb() would
+    // CpuDeadLoop on the first AsmReadMsr64.  The paravisor mediates all
+    // SNP-specific operations (GHCB, host visibility, page validation), so
+    // the firmware does not need its own bypass context — every hypercall
+    // goes through mHvContext and the paravisor emulates a normal
+    // hypervisor interface for the guest.
+    //
+    if (IsHardwareIsolatedEx(mIsolationType) &&
+        !((mIsolationType == UefiIsolationTypeSnp) && paravisorPresent))
     {
         ASSERT(mSharedGpaBoundary != 0);
 
