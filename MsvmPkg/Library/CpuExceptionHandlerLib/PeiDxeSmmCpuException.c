@@ -179,10 +179,19 @@ CommonExceptionHandlerWorker (
 #if !MS_HYP_CHANGE
       CpuDeadLoop ();
 #else
+      //
+      // Pass the faulting RIP as Param2 so it ends up in RCX of the
+      // VMM-visible TripleFault register dump.  This lets us identify the
+      // original instruction that took the unhandled exception even when
+      // BiosDeviceDebugLib output is not getting through (e.g. early DXE
+      // failures on hardware-isolated guests where port I/O isn't yet
+      // emulated).  Without this, RCX is always 0 and only the exception
+      // vector (RAX) and ExceptionData (RBX) are recoverable.
+      //
       FailFast(
         ExceptionType,
         SystemContext.SystemContextX64->ExceptionData,
-        0,
+        SystemContext.SystemContextX64->Rip,
         (UINTN)&mDebugBuffer,
         mDebugCursor);
 #endif // MS_HYP_CHANGE
