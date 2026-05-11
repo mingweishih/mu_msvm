@@ -706,8 +706,23 @@ VmbusRootSendMessage(
 **/
 {
     EFI_STATUS status;
+    UINTN attempts;
 
-    do
+    //
+    // PostMessage may return EFI_NOT_READY when the host's message queue is
+    // full (HV_STATUS_INSUFFICIENT_BUFFERS).  In normal operation the host
+    // drains the queue immediately and this resolves on the next attempt,
+    // but if no peer is actually servicing this VMBus connection (e.g. a
+    // paravisor with no VMBus channels offered to VTL0), the original
+    // unbounded loop spun forever issuing ~50000 hypercalls/sec.
+    //
+    // Bound the retry to ~250 ms total wall time and stall briefly between
+    // attempts so a stuck queue causes VMBus init to fail-soft (the caller
+    // either falls back to non-confidential mode or returns the error,
+    // letting the firmware proceed to BDS without VMBus instead of hanging).
+    //
+
+    for (attempts = 0; attempts < 250; attempts++)
     {
         status = mHv->PostMessage(mHv,
                                   gVmbusConnectionId,
@@ -716,11 +731,27 @@ VmbusRootSendMessage(
                                   Message->Size,
                                   RootContext->Confidential);
 
-    } while (status == EFI_NOT_READY);
+        if (status != EFI_NOT_READY)
+        {
+            break;
+        }
+
+        gBS->Stall(1000); // 1 ms
+    }
+
+    if (status == EFI_NOT_READY)
+    {
+        DEBUG((EFI_D_ERROR,
+            "Vmbus PostMessage timed out after %u attempts, confidential=%d\n",
+            (UINT32)attempts,
+            RootContext->Confidential));
+        status = EFI_TIMEOUT;
+    }
 
     if (EFI_ERROR(status))
     {
-        DEBUG((EFI_D_ERROR, "Vmbus failed to send message, confidential=%d\n", RootContext->Confidential));
+        DEBUG((EFI_D_ERROR, "Vmbus failed to send message, confidential=%d, status=%r\n",
+            RootContext->Confidential, status));
     }
 
     return status;
