@@ -2025,6 +2025,19 @@ EfiHvpEnableSynicComponent(
     component = EfiHvpGetSynicComponent(context, Register);
 
     //
+    // Determine whether the buffer needs to be host-visible (shared).  This
+    // is true only when the synic component is being registered with the
+    // *bypass* (host) hypervisor.  When the target is the paravisor (or the
+    // bare hypervisor in a non-isolated guest), the buffer must be a private
+    // GPA.  Originally this was approximated by `!Direct`, which assumed
+    // that "not direct" implied "bypass"; that no longer holds in the
+    // SNP+paravisor configuration where mUseBypassContext is FALSE and
+    // Direct is FALSE but the destination is still the paravisor.
+    //
+
+    BOOLEAN UseSharedBuffer = mUseBypassContext && !Direct;
+
+    //
     // Check if the component is for the paravisor in a hardware-isolated
     // environment.
     //
@@ -2036,8 +2049,8 @@ EfiHvpEnableSynicComponent(
     if (simp.SimpEnabled != 0)
     {
         gpa = simp.BaseSimpGpa * EFI_PAGE_SIZE;
-        if ((!Direct && gpa < mSharedGpaBoundary) ||
-            (Direct && mSharedGpaBoundary != 0 && gpa >= mSharedGpaBoundary))
+        if ((UseSharedBuffer && gpa < mSharedGpaBoundary) ||
+            (!UseSharedBuffer && mSharedGpaBoundary != 0 && gpa >= mSharedGpaBoundary))
         {
 
             //
@@ -2050,9 +2063,18 @@ EfiHvpEnableSynicComponent(
         {
             component->Page = (VOID*)gpa;
         }
-        else
+        else if (UseSharedBuffer)
         {
             component->Page = EfiHvpSharedVa((VOID*)gpa);
+        }
+        else
+        {
+            //
+            // Targeting the paravisor (e.g. SNP+paravisor) without going
+            // through the bypass context: the GPA the paravisor reports
+            // is already a private, identity-mapped address.
+            //
+            component->Page = (VOID*)gpa;
         }
     }
     else
@@ -2060,13 +2082,13 @@ EfiHvpEnableSynicComponent(
         ASSERT((mUseBypassContext == FALSE) || mBypassOnly || Direct);
         component->Page = Buffer;
         simp.SimpEnabled = 1;
-        if (Direct)
+        if (UseSharedBuffer)
         {
-            simp.BaseSimpGpa = EfiHvpBasePa((UINTN)component->Page) / EFI_PAGE_SIZE;
+            simp.BaseSimpGpa = EfiHvpSharedPa(component->Page) / EFI_PAGE_SIZE;
         }
         else
         {
-            simp.BaseSimpGpa = EfiHvpSharedPa(component->Page) / EFI_PAGE_SIZE;
+            simp.BaseSimpGpa = EfiHvpBasePa((UINTN)component->Page) / EFI_PAGE_SIZE;
         }
 
         HvHypercallSetVpRegister64Self(context, Register, simp.AsUINT64);
